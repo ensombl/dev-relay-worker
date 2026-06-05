@@ -6,7 +6,7 @@
     "$schema": "node_modules/wrangler/config-schema.json",
     "name": "ensombl-dev-relay-worker",
     "main": "src/index.ts",
-    "compatibility_date": "2025-09-04",
+    "compatibility_date": "2025-08-29",
     "observability": {
         "enabled": true
     },

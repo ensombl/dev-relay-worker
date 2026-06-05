@@ -1,0 +1,30 @@
+{
+  "name": "@ensombl/relay-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sidecar client that connects an HTTP app to the Ensombl relay worker.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "pino": "^9.3.2",
+    "pino-pretty": "^13.0.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "~3.2.0"
+  }
+}

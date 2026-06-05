@@ -53,6 +53,7 @@ lib-cov
 
 # Coverage directory used by tools like istanbul
 coverage
+**/coverage/
 *.lcov
 
 # nyc test coverage
@@ -216,6 +217,7 @@ vendor/vscode/
 .wrangler/
 
 # Turbo Repo
+.turbo/
 build/**
 dist/**
 .next/**

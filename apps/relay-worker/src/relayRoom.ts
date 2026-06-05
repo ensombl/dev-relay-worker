@@ -1,4 +1,13 @@
-const WS_CHUNK = 240 * 1024;
+import {
+  WS_CHUNK,
+  base64ToBytes,
+  bytesToBase64,
+  type RelayFrame,
+  type ReqBodyFrame,
+  type ReqHeaderFrame,
+  type ResBodyFrame,
+  type ResHeaderFrame,
+} from "@ensombl/relay-protocol";
 
 export class RelayRoom {
   private sockets = new Set<WebSocket>();
@@ -68,7 +77,7 @@ export class RelayRoom {
       try {
         const msg = JSON.parse(
           typeof evt.data === "string" ? evt.data : ""
-        ) as Frame & { id: number };
+        ) as RelayFrame & { id: number };
         if (msg.id !== rid) return;
 
         if (!winner && msg.type === "res") {
@@ -81,9 +90,7 @@ export class RelayRoom {
         if (ws === winner && msg.type === "res_body" && bodyController) {
           const b64 = (msg as ResBodyFrame).b64 || "";
           const more = (msg as ResBodyFrame).more;
-          const chunk = b64
-            ? Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-            : new Uint8Array();
+          const chunk = base64ToBytes(b64);
           if (chunk.length) bodyController.enqueue(chunk);
           if (!more) {
             bodyController.close();
@@ -137,7 +144,7 @@ export class RelayRoom {
           const frame: ReqBodyFrame = {
             id: rid,
             type: "req_body",
-            b64: btoa(String.fromCharCode(...slice)),
+            b64: bytesToBase64(slice),
             more: true,
           };
           const json = JSON.stringify(frame);
