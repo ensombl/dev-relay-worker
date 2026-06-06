@@ -7,6 +7,7 @@ import {
 import { SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import handler from "../src/index";
+import { RelayRoom } from "../src/relayRoom";
 
 const sockets: WebSocket[] = [];
 
@@ -85,6 +86,23 @@ function sendResponse(socket: WebSocket, id: number, body: string): void {
   );
 }
 
+function roomSockets(room: RelayRoom): Set<WebSocket> {
+  return (room as unknown as { sockets: Set<WebSocket> }).sockets;
+}
+
+function fakeSocket(options: {
+  readyState: number;
+  send?: (message: string) => void;
+}): WebSocket {
+  return {
+    readyState: options.readyState,
+    send: vi.fn(options.send ?? (() => {})),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    close: vi.fn(),
+  } as unknown as WebSocket;
+}
+
 afterEach(() => {
   for (const socket of sockets.splice(0)) {
     socket.close();
@@ -132,6 +150,48 @@ describe("relay worker", () => {
 
     expect(response.status).toBe(400);
     expect(await response.text()).toBe("No relay client for path");
+  });
+
+  it("does not count retained closed sockets as active connections", async () => {
+    const room = new RelayRoom({} as DurableObjectState, {} as Env);
+    roomSockets(room).add(fakeSocket({ readyState: 3 }));
+
+    const check = await room.fetch(
+      new Request("http://internal/check-connections")
+    );
+    expect(await check.json()).toBe(false);
+    expect(roomSockets(room).size).toBe(0);
+
+    const response = await room.fetch(new Request("http://internal/stale"));
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("No relay client for path");
+  });
+
+  it("drops sockets that fail while forwarding a request", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const room = new RelayRoom({} as DurableObjectState, {} as Env);
+      const socket = fakeSocket({
+        readyState: 1,
+        send: () => {
+          throw new Error("dead socket");
+        },
+      });
+      roomSockets(room).add(socket);
+
+      const responsePromise = room.fetch(new Request("http://internal/fails"));
+
+      await vi.advanceTimersByTimeAsync(15000);
+
+      const response = await responsePromise;
+      expect(response.status).toBe(504);
+      expect(await response.text()).toBe("relay timeout");
+      expect(socket.send).toHaveBeenCalled();
+      expect(roomSockets(room).size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("relays exact requests and strips the room prefix", async () => {
