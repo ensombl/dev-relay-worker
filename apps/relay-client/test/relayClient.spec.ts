@@ -132,7 +132,7 @@ describe("RelayClient", () => {
             id: 1,
             type: "req",
             m: "POST",
-            p: "/demo/hit",
+            p: "demo/hit",
             q: "?x=1",
             h: { "x-test": "yes", host: "relay.example" },
           })
@@ -192,6 +192,77 @@ describe("RelayClient", () => {
       url: "/demo/hit?x=1",
       body: "hello",
       header: "yes",
+    });
+  });
+
+  it("keeps forwarded double-slash paths on the configured HTTP target origin", async () => {
+    const targetServer = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          host: req.headers.host,
+          url: req.url,
+        })
+      );
+    });
+    const targetPort = await listenHttp(targetServer);
+    const { relayServer, relayPort } = await createRelayServer();
+
+    const receivedFrames: Array<ResHeaderFrame | ResBodyFrame> = [];
+    const complete = new Promise<void>((resolve) => {
+      relayServer.once("connection", async (socket) => {
+        const collector = collectResponseFrames(socket);
+        socket.send(
+          JSON.stringify({
+            id: 5,
+            type: "req",
+            m: "GET",
+            p: "//169.254.169.254/latest",
+            q: "?x=1",
+            h: { host: "relay.example" },
+          })
+        );
+        socket.send(
+          JSON.stringify({
+            id: 5,
+            type: "req_body",
+            b64: "",
+            more: false,
+          })
+        );
+
+        await collector.complete;
+        receivedFrames.push(...collector.frames);
+        resolve();
+      });
+    });
+
+    const client = new RelayClient({
+      relayUrl: `ws://127.0.0.1:${relayPort}`,
+      targetUrl: `http://127.0.0.1:${targetPort}`,
+      reconnectDelayMs: 25,
+      timeoutMs: 1000,
+      logger: noopLogger(),
+    });
+    clients.push(client);
+    client.start();
+
+    await complete;
+
+    const headerFrame = receivedFrames.find(
+      (frame): frame is ResHeaderFrame => frame.type === "res"
+    );
+    const body = Buffer.concat(
+      receivedFrames
+        .filter((frame): frame is ResBodyFrame => frame.type === "res_body")
+        .filter((frame) => frame.b64)
+        .map((frame) => Buffer.from(frame.b64, "base64"))
+    ).toString("utf8");
+
+    expect(headerFrame?.s).toBe(200);
+    expect(JSON.parse(body)).toEqual({
+      host: `127.0.0.1:${targetPort}`,
+      url: "//169.254.169.254/latest?x=1",
     });
   });
 

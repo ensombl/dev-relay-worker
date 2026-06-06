@@ -390,8 +390,11 @@ export class RelayClient {
   }
 
   private resolveTarget(frame: ReqHeaderFrame): URL {
-    const base = new URL(this.options.targetUrl);
-    return new URL(`${frame.p}${frame.q || ""}`, base.origin);
+    const target = new URL(this.options.targetUrl);
+    target.pathname = frame.p.startsWith("/") ? frame.p : `/${frame.p}`;
+    target.search = frame.q || "";
+    target.hash = "";
+    return target;
   }
 
   private sendBody(ws: WebSocket, id: number, body: string): void {

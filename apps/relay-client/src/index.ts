@@ -1,18 +1,18 @@
-import dotenv from "dotenv";
 import pino from "pino";
 import {
   loadRelayClientConfig,
   type RelayClientConfig,
 } from "./config.js";
+import { loadRelayEnv } from "./env.js";
 import { startHealthServer } from "./health.js";
 import { RelayClient } from "./relayClient.js";
 
-dotenv.config();
+loadRelayEnv();
 
 const logger = pino({
-  level: process.env.LOG_LEVEL || "info",
+  level: process.env.LOG_LEVEL || process.env.RELAY_LOG_LEVEL || "info",
   ...(process.env.NODE_ENV !== "production" &&
-  process.env.LOG_PRETTY !== "false"
+  (process.env.LOG_PRETTY ?? process.env.RELAY_LOG_PRETTY) !== "false"
     ? {
         transport: {
           target: "pino-pretty",

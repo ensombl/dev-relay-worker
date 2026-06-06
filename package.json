@@ -11,7 +11,7 @@
     "dev": "turbo run dev --parallel",
     "dev:worker": "pnpm --filter @ensombl/relay-worker dev",
     "dev:relay-client": "pnpm --filter @ensombl/relay-client dev",
-    "dev:demo-client": "RELAY_BASE_URL='ws://localhost:8787' RELAY_ROOM='demo' RELAY_PATHS='/webhook/*' TARGET_URL='http://localhost:3000' HEALTH_PORT=8081 pnpm --filter @ensombl/relay-client dev",
+    "dev:demo-client": "RELAY_BASE_URL='ws://localhost:8787' RELAY_ROOM='demo' RELAY_PATHS='/webhook/*' RELAY_TARGET_URL='http://localhost:3000' RELAY_HEALTH_PORT=8081 pnpm --filter @ensombl/relay-client dev",
     "dev:demo-target": "pnpm --filter @ensombl/demo-target dev",
     "dev:demo": "concurrently -k -n worker,target,client -c cyan,green,magenta \"pnpm dev:worker\" \"pnpm dev:demo-target\" \"pnpm dev:demo-client\"",
     "cf-typegen": "pnpm --filter @ensombl/relay-worker cf-typegen"

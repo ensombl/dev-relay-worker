@@ -7,10 +7,10 @@ export type RelayClientConfig = {
   healthPort: number;
 };
 
-type RequiredEnvKey = "RELAY_BASE_URL" | "RELAY_ROOM" | "TARGET_URL";
+type RequiredEnvKey = "RELAY_BASE_URL" | "RELAY_ROOM";
 
 const REQUIRED_ENV_MESSAGE =
-  "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required";
+  "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL or RELAY_TARGET_URL are required";
 
 function normalizeRelayPath(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
@@ -33,6 +33,18 @@ function requireEnv(
   key: RequiredEnvKey
 ): string {
   const value = env[key];
+  if (!value) throw new Error(REQUIRED_ENV_MESSAGE);
+  return value;
+}
+
+function envValue(env: NodeJS.ProcessEnv, keys: string[]): string | undefined {
+  for (const key of keys) {
+    if (env[key]) return env[key];
+  }
+}
+
+function requireEnvValue(env: NodeJS.ProcessEnv, keys: string[]): string {
+  const value = envValue(env, keys);
   if (!value) throw new Error(REQUIRED_ENV_MESSAGE);
   return value;
 }
@@ -69,9 +81,11 @@ export function loadRelayClientConfig(
         path,
       })
     ),
-    targetUrl: requireEnv(env, "TARGET_URL"),
-    timeoutMs: Number(env.TIMEOUT_MS || 15000),
-    reconnectDelayMs: Number(env.RECONNECT_DELAY_MS || 1000),
-    healthPort: Number(env.HEALTH_PORT || 8080),
+    targetUrl: requireEnvValue(env, ["TARGET_URL", "RELAY_TARGET_URL"]),
+    timeoutMs: Number(envValue(env, ["TIMEOUT_MS", "RELAY_TIMEOUT_MS"]) || 15000),
+    reconnectDelayMs: Number(
+      envValue(env, ["RECONNECT_DELAY_MS", "RELAY_RECONNECT_DELAY_MS"]) || 1000
+    ),
+    healthPort: Number(envValue(env, ["HEALTH_PORT", "RELAY_HEALTH_PORT"]) || 8080),
   };
 }

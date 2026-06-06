@@ -67,6 +67,25 @@ describe("relay client config", () => {
     expect(overrides.healthPort).toBe(9090);
   });
 
+  it("loads target and numeric values from relay-prefixed environment aliases", () => {
+    const config = loadRelayClientConfig({
+      RELAY_BASE_URL: "ws://localhost:8787",
+      RELAY_ROOM: "demo",
+      RELAY_PATHS: "/webhook/*",
+      RELAY_TARGET_URL: "http://localhost:3000",
+      RELAY_TIMEOUT_MS: "42",
+      RELAY_RECONNECT_DELAY_MS: "7",
+      RELAY_HEALTH_PORT: "9090",
+    });
+
+    expect(config).toMatchObject({
+      targetUrl: "http://localhost:3000",
+      timeoutMs: 42,
+      reconnectDelayMs: 7,
+      healthPort: 9090,
+    });
+  });
+
   it("loads multiple relay paths from RELAY_PATHS", () => {
     const config = loadRelayClientConfig({
       RELAY_BASE_URL: "ws://localhost:8787",
@@ -95,7 +114,7 @@ describe("relay client config", () => {
         TARGET_URL: "http://localhost:3000",
       })
     ).toThrow(
-      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL or RELAY_TARGET_URL are required"
     );
 
     expect(() =>
@@ -105,7 +124,7 @@ describe("relay client config", () => {
         TARGET_URL: "http://localhost:3000",
       })
     ).toThrow(
-      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL or RELAY_TARGET_URL are required"
     );
 
     expect(() =>
@@ -115,7 +134,7 @@ describe("relay client config", () => {
         TARGET_URL: "http://localhost:3000",
       })
     ).toThrow(
-      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL or RELAY_TARGET_URL are required"
     );
 
     expect(() =>
@@ -126,7 +145,7 @@ describe("relay client config", () => {
         TARGET_URL: "http://localhost:3000",
       })
     ).toThrow(
-      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL or RELAY_TARGET_URL are required"
     );
 
     expect(() =>
@@ -136,7 +155,7 @@ describe("relay client config", () => {
         RELAY_PATHS: "/webhook/*",
       })
     ).toThrow(
-      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL or RELAY_TARGET_URL are required"
     );
   });
 });
