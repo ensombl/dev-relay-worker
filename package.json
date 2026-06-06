@@ -1,18 +1,25 @@
 {
-    "name": "ensombl-dev-relay-worker",
-    "version": "0.0.0",
-    "private": true,
-    "scripts": {
-        "deploy": "wrangler deploy",
-        "dev": "wrangler dev",
-        "start": "wrangler dev",
-        "test": "vitest",
-        "cf-typegen": "wrangler types"
-    },
-    "devDependencies": {
-        "@cloudflare/vitest-pool-workers": "^0.8.19",
-        "typescript": "^5.5.2",
-        "vitest": "~3.2.0",
-        "wrangler": "^4.33.2"
-    }
+  "name": "ensombl-dev-relay",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.3.0",
+  "scripts": {
+    "build": "turbo run build",
+    "coverage": "turbo run coverage",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "dev": "turbo run dev --parallel",
+    "dev:worker": "pnpm --filter @ensombl/relay-worker dev",
+    "dev:relay-client": "pnpm --filter @ensombl/relay-client dev",
+    "dev:demo-client": "RELAY_BASE_URL='ws://localhost:8787' RELAY_ROOM='demo' RELAY_PATH='/webhook/*' TARGET_URL='http://localhost:3000' HEALTH_PORT=8081 pnpm --filter @ensombl/relay-client dev",
+    "dev:demo-target": "pnpm --filter @ensombl/demo-target dev",
+    "dev:demo": "concurrently -k -n worker,target,client -c cyan,green,magenta \"pnpm dev:worker\" \"pnpm dev:demo-target\" \"pnpm dev:demo-client\"",
+    "cf-typegen": "pnpm --filter @ensombl/relay-worker cf-typegen"
+  },
+  "devDependencies": {
+    "@vitest/coverage-istanbul": "3.2.4",
+    "concurrently": "^10.0.3",
+    "turbo": "^2.5.6",
+    "typescript": "^5.9.2"
+  }
 }
