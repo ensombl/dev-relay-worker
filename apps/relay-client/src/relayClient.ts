@@ -82,20 +82,37 @@ function normalizeHeaders(headers: IncomingHttpHeaders): Record<string, string> 
 }
 
 function isReqHeaderFrame(frame: unknown): frame is ReqHeaderFrame {
+  const candidate = frame as Partial<ReqHeaderFrame> | null;
   return (
     typeof frame === "object" &&
     frame !== null &&
-    (frame as { type?: unknown }).type === "req" &&
-    typeof (frame as { id?: unknown }).id === "number"
+    candidate?.type === "req" &&
+    typeof candidate.id === "number" &&
+    typeof candidate.m === "string" &&
+    typeof candidate.p === "string" &&
+    typeof candidate.q === "string" &&
+    isStringRecord(candidate.h)
   );
 }
 
 function isReqBodyFrame(frame: unknown): frame is ReqBodyFrame {
+  const candidate = frame as Partial<ReqBodyFrame> | null;
   return (
     typeof frame === "object" &&
     frame !== null &&
-    (frame as { type?: unknown }).type === "req_body" &&
-    typeof (frame as { id?: unknown }).id === "number"
+    candidate?.type === "req_body" &&
+    typeof candidate.id === "number" &&
+    typeof candidate.b64 === "string" &&
+    typeof candidate.more === "boolean"
+  );
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
   );
 }
 
@@ -249,13 +266,23 @@ export class RelayClient {
 
       if (body !== undefined) {
         this.sendBody(ws, frame.id, body);
+        this.inflight.delete(frame.id);
         return;
       }
 
       if (!resStream) {
         this.sendBodyEnd(ws, frame.id);
+        this.inflight.delete(frame.id);
         return;
       }
+
+      let completed = false;
+      const completeResponse = () => {
+        if (completed) return;
+        completed = true;
+        this.sendBodyEnd(ws, frame.id);
+        this.inflight.delete(frame.id);
+      };
 
       resStream.on("data", (chunk: Buffer) => {
         this.sendFrame(ws, {
@@ -267,12 +294,12 @@ export class RelayClient {
       });
 
       resStream.on("end", () => {
-        this.sendBodyEnd(ws, frame.id);
+        completeResponse();
       });
 
       resStream.on("error", (error) => {
         this.logger.error({ id: frame.id, error }, "response stream error");
-        this.sendBodyEnd(ws, frame.id);
+        completeResponse();
       });
     });
 
@@ -313,7 +340,6 @@ export class RelayClient {
         { id: frame.id, totalBytes: inflight.wrote },
         "request body complete and forwarded"
       );
-      this.inflight.delete(frame.id);
     }
   }
 
