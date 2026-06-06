@@ -1,6 +1,9 @@
 import dotenv from "dotenv";
 import pino from "pino";
-import { loadRelayClientConfig } from "./config.js";
+import {
+  loadRelayClientConfig,
+  type RelayClientConfig,
+} from "./config.js";
 import { startHealthServer } from "./health.js";
 import { RelayClient } from "./relayClient.js";
 
@@ -22,7 +25,7 @@ const logger = pino({
     : {}),
 });
 
-let config;
+let config: RelayClientConfig;
 try {
   config = loadRelayClientConfig(process.env);
 } catch (error) {
@@ -33,22 +36,56 @@ try {
   process.exit(1);
 }
 
-const client = new RelayClient({
-  relayUrl: config.relayUrl,
-  targetUrl: config.targetUrl,
-  timeoutMs: config.timeoutMs,
-  reconnectDelayMs: config.reconnectDelayMs,
-  logger,
-});
+const clients = config.relayUrls.map(
+  (relayUrl) =>
+    new RelayClient({
+      relayUrl,
+      targetUrl: config.targetUrl,
+      timeoutMs: config.timeoutMs,
+      reconnectDelayMs: config.reconnectDelayMs,
+      logger,
+    })
+);
+
+function latestTimestamp(values: Array<string | undefined>): string | undefined {
+  const defined = values.filter((value): value is string => Boolean(value));
+  return defined.sort().at(-1);
+}
+
+function getStatus() {
+  const subscriptions = clients.map((client) => client.getStatus());
+  const lastConnectedAt = latestTimestamp(
+    subscriptions.map((status) => status.lastConnectedAt)
+  );
+  const lastDisconnectedAt = latestTimestamp(
+    subscriptions.map((status) => status.lastDisconnectedAt)
+  );
+
+  return {
+    connected: subscriptions.every((status) => status.connected),
+    inflight: subscriptions.reduce((total, status) => total + status.inflight, 0),
+    relayPaths: config.relayPaths,
+    relayUrls: config.relayUrls,
+    targetUrl: config.targetUrl,
+    reconnectAttempts: subscriptions.reduce(
+      (total, status) => total + status.reconnectAttempts,
+      0
+    ),
+    subscriptions,
+    ...(lastConnectedAt ? { lastConnectedAt } : {}),
+    ...(lastDisconnectedAt ? { lastDisconnectedAt } : {}),
+  };
+}
+
 const healthServer = startHealthServer(
   config.healthPort,
-  () => client.getStatus(),
+  getStatus,
   logger
 );
 
 function shutdown(signal: NodeJS.Signals): void {
-  logger.info({ signal }, "shutting down relay client");
-  client.stop();
+  logger.info({ signal }, "shutting down relay clients");
+  for (const client of clients) client.stop();
   healthServer.close(() => {
     process.exit(0);
   });
@@ -57,5 +94,5 @@ function shutdown(signal: NodeJS.Signals): void {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-logger.info(config, "starting relay client");
-client.start();
+logger.info(config, "starting relay clients");
+for (const client of clients) client.start();

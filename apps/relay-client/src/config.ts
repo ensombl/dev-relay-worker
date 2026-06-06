@@ -1,28 +1,39 @@
 export type RelayClientConfig = {
-  relayUrl: string;
+  relayPaths: string[];
+  relayUrls: string[];
   targetUrl: string;
   timeoutMs: number;
   reconnectDelayMs: number;
   healthPort: number;
 };
 
-const REQUIRED_ENV = [
-  "RELAY_BASE_URL",
-  "RELAY_ROOM",
-  "RELAY_PATH",
-  "TARGET_URL",
-] as const;
+type RequiredEnvKey = "RELAY_BASE_URL" | "RELAY_ROOM" | "TARGET_URL";
+
+const REQUIRED_ENV_MESSAGE =
+  "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required";
 
 function normalizeRelayPath(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+function parseRelayPaths(env: NodeJS.ProcessEnv): string[] {
+  const paths =
+    env.RELAY_PATHS
+      ?.split(/[,\n]+/)
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0) ?? [];
+
+  if (paths.length === 0) throw new Error(REQUIRED_ENV_MESSAGE);
+
+  return paths.map(normalizeRelayPath);
+}
+
 function requireEnv(
   env: NodeJS.ProcessEnv,
-  key: (typeof REQUIRED_ENV)[number]
+  key: RequiredEnvKey
 ): string {
   const value = env[key];
-  if (!value) throw new Error(`${REQUIRED_ENV.join(", ")} are required`);
+  if (!value) throw new Error(REQUIRED_ENV_MESSAGE);
   return value;
 }
 
@@ -45,14 +56,19 @@ export function buildRelaySubscribeUrl(options: {
 export function loadRelayClientConfig(
   env: NodeJS.ProcessEnv
 ): RelayClientConfig {
-  const relayUrl = buildRelaySubscribeUrl({
-    baseUrl: requireEnv(env, "RELAY_BASE_URL"),
-    room: requireEnv(env, "RELAY_ROOM"),
-    path: requireEnv(env, "RELAY_PATH"),
-  });
+  const baseUrl = requireEnv(env, "RELAY_BASE_URL");
+  const room = requireEnv(env, "RELAY_ROOM");
+  const relayPaths = parseRelayPaths(env);
 
   return {
-    relayUrl,
+    relayPaths,
+    relayUrls: relayPaths.map((path) =>
+      buildRelaySubscribeUrl({
+        baseUrl,
+        room,
+        path,
+      })
+    ),
     targetUrl: requireEnv(env, "TARGET_URL"),
     timeoutMs: Number(env.TIMEOUT_MS || 15000),
     reconnectDelayMs: Number(env.RECONNECT_DELAY_MS || 1000),

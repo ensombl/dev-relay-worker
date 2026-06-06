@@ -38,7 +38,7 @@ The sidecar is configured by environment variables:
 
 - `RELAY_BASE_URL`: relay Worker WebSocket origin, for example `wss://relay.dev.ensombl.io`
 - `RELAY_ROOM`: relay room, for example `acme`
-- `RELAY_PATH`: target path pattern, for example `/webhooks/*`
+- `RELAY_PATHS`: comma- or newline-separated target path patterns, for example `/webhooks/*,/auth/stripe/webhook`
 - `TARGET_URL`: local app target URL, for example `http://host.docker.internal:3000`
 - `TIMEOUT_MS`: target request timeout, default `15000`
 - `RECONNECT_DELAY_MS`: reconnect delay after relay disconnect, default `1000`
