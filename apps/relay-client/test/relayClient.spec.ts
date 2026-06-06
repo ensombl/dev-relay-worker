@@ -419,6 +419,7 @@ describe("RelayClient", () => {
 
     connectedSocket!.send("not-json");
     connectedSocket!.send(JSON.stringify({ id: 1, type: "unknown" }));
+    connectedSocket!.send(JSON.stringify({ id: 2, type: "req" }));
     connectedSocket!.send(
       JSON.stringify({ id: 99, type: "req_body", b64: "", more: false })
     );
@@ -467,7 +468,7 @@ describe("RelayClient", () => {
     expect(client.getStatus().connected).toBe(false);
   });
 
-  it("cleans up inflight target requests when the relay disconnects", async () => {
+  it("keeps completed target requests inflight until response completion or relay disconnect", async () => {
     const targetServer = http.createServer((req, _res) => {
       req.resume();
     });
@@ -488,6 +489,14 @@ describe("RelayClient", () => {
             h: {},
           })
         );
+        socket.send(
+          JSON.stringify({
+            id: 4,
+            type: "req_body",
+            b64: "",
+            more: false,
+          })
+        );
         resolve();
       });
     });
@@ -505,7 +514,7 @@ describe("RelayClient", () => {
     await connected;
     await waitFor(
       () => client.getStatus().inflight === 1,
-      "request was not tracked as inflight"
+      "request was not kept inflight after body completion"
     );
 
     relaySocket!.close(1000, "disconnect");
