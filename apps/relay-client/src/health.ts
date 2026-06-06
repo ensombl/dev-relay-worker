@@ -1,9 +1,14 @@
 import http from "node:http";
-import type { RelayClientStatus, RelayLogger } from "./relayClient.js";
+import type { RelayLogger } from "./relayClient.js";
+
+export type RelayHealthStatus = {
+  connected: boolean;
+  [key: string]: unknown;
+};
 
 export function startHealthServer(
   port: number,
-  getStatus: () => RelayClientStatus,
+  getStatus: () => RelayHealthStatus,
   logger: Pick<RelayLogger, "info" | "error">
 ): http.Server {
   const server = http.createServer((req, res) => {

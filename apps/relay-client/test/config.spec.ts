@@ -37,13 +37,15 @@ describe("relay client config", () => {
     const defaults = loadRelayClientConfig({
       RELAY_BASE_URL: "ws://localhost:8787",
       RELAY_ROOM: "demo",
-      RELAY_PATH: "webhook/*",
+      RELAY_PATHS: "webhook/*",
       TARGET_URL: "http://localhost:3000",
     });
 
     expect(defaults).toMatchObject({
-      relayUrl:
+      relayPaths: ["/webhook/*"],
+      relayUrls: [
         "ws://localhost:8787/subscribe?room=demo&path=%2Fwebhook%2F*",
+      ],
       targetUrl: "http://localhost:3000",
       timeoutMs: 15000,
       reconnectDelayMs: 1000,
@@ -53,7 +55,7 @@ describe("relay client config", () => {
     const overrides = loadRelayClientConfig({
       RELAY_BASE_URL: "ws://localhost:8787",
       RELAY_ROOM: "demo",
-      RELAY_PATH: "/webhook/*",
+      RELAY_PATHS: "/webhook/*",
       TARGET_URL: "http://localhost:3000",
       TIMEOUT_MS: "42",
       RECONNECT_DELAY_MS: "7",
@@ -65,22 +67,46 @@ describe("relay client config", () => {
     expect(overrides.healthPort).toBe(9090);
   });
 
+  it("loads multiple relay paths from RELAY_PATHS", () => {
+    const config = loadRelayClientConfig({
+      RELAY_BASE_URL: "ws://localhost:8787",
+      RELAY_ROOM: "demo",
+      RELAY_PATHS: "/webhook/*, auth/stripe/webhook\n/webhooks/didit",
+      TARGET_URL: "http://localhost:3000",
+    });
+
+    expect(config.relayPaths).toEqual([
+      "/webhook/*",
+      "/auth/stripe/webhook",
+      "/webhooks/didit",
+    ]);
+    expect(config.relayUrls).toEqual([
+      "ws://localhost:8787/subscribe?room=demo&path=%2Fwebhook%2F*",
+      "ws://localhost:8787/subscribe?room=demo&path=%2Fauth%2Fstripe%2Fwebhook",
+      "ws://localhost:8787/subscribe?room=demo&path=%2Fwebhooks%2Fdidit",
+    ]);
+  });
+
   it("fails config loading when required env vars are missing", () => {
     expect(() =>
       loadRelayClientConfig({
         RELAY_ROOM: "demo",
-        RELAY_PATH: "/webhook/*",
+        RELAY_PATHS: "/webhook/*",
         TARGET_URL: "http://localhost:3000",
       })
-    ).toThrow("RELAY_BASE_URL, RELAY_ROOM, RELAY_PATH, TARGET_URL are required");
+    ).toThrow(
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+    );
 
     expect(() =>
       loadRelayClientConfig({
         RELAY_BASE_URL: "ws://localhost:8787",
-        RELAY_PATH: "/webhook/*",
+        RELAY_PATHS: "/webhook/*",
         TARGET_URL: "http://localhost:3000",
       })
-    ).toThrow("RELAY_BASE_URL, RELAY_ROOM, RELAY_PATH, TARGET_URL are required");
+    ).toThrow(
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+    );
 
     expect(() =>
       loadRelayClientConfig({
@@ -88,14 +114,29 @@ describe("relay client config", () => {
         RELAY_ROOM: "demo",
         TARGET_URL: "http://localhost:3000",
       })
-    ).toThrow("RELAY_BASE_URL, RELAY_ROOM, RELAY_PATH, TARGET_URL are required");
+    ).toThrow(
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+    );
 
     expect(() =>
       loadRelayClientConfig({
         RELAY_BASE_URL: "ws://localhost:8787",
         RELAY_ROOM: "demo",
         RELAY_PATH: "/webhook/*",
+        TARGET_URL: "http://localhost:3000",
       })
-    ).toThrow("RELAY_BASE_URL, RELAY_ROOM, RELAY_PATH, TARGET_URL are required");
+    ).toThrow(
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+    );
+
+    expect(() =>
+      loadRelayClientConfig({
+        RELAY_BASE_URL: "ws://localhost:8787",
+        RELAY_ROOM: "demo",
+        RELAY_PATHS: "/webhook/*",
+      })
+    ).toThrow(
+      "RELAY_BASE_URL, RELAY_ROOM, RELAY_PATHS, TARGET_URL are required"
+    );
   });
 });
