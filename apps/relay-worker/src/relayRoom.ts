@@ -9,18 +9,44 @@ import {
   type ResHeaderFrame,
 } from "@ensombl/relay-protocol";
 
+const WS_READY_STATE_OPEN = 1;
+
 export class RelayRoom {
   private sockets = new Set<WebSocket>();
   private nextId = 1;
 
   constructor(private state: DurableObjectState, _env: Env) {}
 
+  private openSockets(): WebSocket[] {
+    const sockets: WebSocket[] = [];
+
+    for (const socket of this.sockets) {
+      if (socket.readyState === WS_READY_STATE_OPEN) {
+        sockets.push(socket);
+      } else {
+        this.sockets.delete(socket);
+      }
+    }
+
+    return sockets;
+  }
+
+  private sendToSockets(sockets: WebSocket[], message: string): void {
+    for (const socket of sockets) {
+      try {
+        socket.send(message);
+      } catch {
+        this.sockets.delete(socket);
+      }
+    }
+  }
+
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
 
     // Internal endpoint to check if there are active connections
     if (url.pathname === "/check-connections") {
-      return new Response(JSON.stringify(this.sockets.size > 0), {
+      return new Response(JSON.stringify(this.openSockets().length > 0), {
         headers: { "Content-Type": "application/json" },
       });
     }
@@ -44,7 +70,8 @@ export class RelayRoom {
     }
 
     // No client listening on this path → 400 (your spec)
-    if (this.sockets.size === 0) {
+    const sockets = this.openSockets();
+    if (sockets.length === 0) {
       return new Response("No relay client for path", { status: 400 });
     }
 
@@ -95,7 +122,7 @@ export class RelayRoom {
           if (!more) {
             bodyController.close();
             // cleanup listeners
-            for (const sock of this.sockets) {
+            for (const sock of sockets) {
               const h = socketHandlers.get(sock);
               if (h) sock.removeEventListener("message", h as any);
             }
@@ -107,7 +134,7 @@ export class RelayRoom {
       }
     };
 
-    for (const ws of this.sockets) {
+    for (const ws of sockets) {
       const handler = onMessage.bind(this, ws) as (e: MessageEvent) => void;
       ws.addEventListener("message", handler);
       socketHandlers.set(ws, handler);
@@ -123,11 +150,7 @@ export class RelayRoom {
       h: headers,
     };
     const headerJson = JSON.stringify(headerFrame);
-    for (const ws of this.sockets) {
-      try {
-        ws.send(headerJson);
-      } catch {}
-    }
+    this.sendToSockets(sockets, headerJson);
 
     // Stream request body to all subscribers in safe-sized WS frames
     if (req.body) {
@@ -148,11 +171,7 @@ export class RelayRoom {
             more: true,
           };
           const json = JSON.stringify(frame);
-          for (const ws of this.sockets) {
-            try {
-              ws.send(json);
-            } catch {}
-          }
+          this.sendToSockets(sockets, json);
           off += slice.length;
         }
       }
@@ -166,11 +185,7 @@ export class RelayRoom {
         more: false,
       };
       const endJson = JSON.stringify(endFrame);
-      for (const ws of this.sockets) {
-        try {
-          ws.send(endJson);
-        } catch {}
-      }
+      this.sendToSockets(sockets, endJson);
     }
 
     // Wait up to 15s for first response headers
@@ -187,12 +202,14 @@ export class RelayRoom {
 
     // Timeout -> 504
     if (!winner || !resHeaders) {
-      for (const sock of this.sockets) {
+      for (const sock of sockets) {
         const h = socketHandlers.get(sock);
         if (h) sock.removeEventListener("message", h as any);
       }
       socketHandlers.clear();
-      if (bodyController) bodyController.close();
+      const controller =
+        bodyController as ReadableStreamDefaultController<Uint8Array> | null;
+      if (controller) controller.close();
       return new Response("relay timeout", { status: 504 });
     }
 
