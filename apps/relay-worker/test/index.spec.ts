@@ -292,20 +292,22 @@ describe("relay worker", () => {
     vi.useFakeTimers();
 
     try {
-      const socket = await subscribe("demo", "/timeout");
-      const responsePromise = SELF.fetch("https://example.com/demo/timeout");
+      const room = new RelayRoom({} as DurableObjectState, {} as Env);
+      const socket = fakeSocket({ readyState: 1 });
+      roomSockets(room).add(socket);
 
-      const reqFrame = await nextFrame<ReqHeaderFrame>(socket);
-      expect(reqFrame.p).toBe("/timeout");
-
-      const endFrame = await nextFrame<ReqBodyFrame>(socket);
-      expect(endFrame.more).toBe(false);
-
+      const responsePromise = room.fetch(new Request("http://internal/timeout"));
       await vi.advanceTimersByTimeAsync(15000);
 
       const response = await responsePromise;
       expect(response.status).toBe(504);
       expect(await response.text()).toBe("relay timeout");
+      expect(socket.send).toHaveBeenCalledWith(
+        expect.stringContaining('"type":"req"')
+      );
+      expect(socket.send).toHaveBeenCalledWith(
+        expect.stringContaining('"type":"req_body"')
+      );
     } finally {
       vi.useRealTimers();
     }

@@ -9,6 +9,8 @@ Canonical monorepo for the Cloudflare relay Worker, reusable relay sidecar, shar
 - `apps/demo-target`: local HTTP app with a browser UI showing requests forwarded through the relay.
 - `packages/relay-protocol`: shared WebSocket frame types, constants, and base64 helpers.
 
+The deployed Cloudflare Worker is `ensombl-relay-worker` on the custom domain `relay.dev.ensombl.io`.
+
 ## Local Demo
 
 ```sh

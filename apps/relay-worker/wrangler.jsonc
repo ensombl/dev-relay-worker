@@ -4,7 +4,8 @@
  */
 {
     "$schema": "node_modules/wrangler/config-schema.json",
-    "name": "ensombl-dev-relay-worker",
+    "name": "ensombl-relay-worker",
+    "account_id": "c17660581ac56ebe0a26fb254c0d5c33",
     "main": "src/index.ts",
     "compatibility_date": "2025-08-29",
     "observability": {
@@ -30,8 +31,8 @@
 
     "routes": [
         {
-            "pattern": "relay.dev.ensombl.io/*",
-            "zone_id": "9ddca388be0133ce57f3dab531188137"
+            "pattern": "relay.dev.ensombl.io",
+            "custom_domain": true
         }
     ]
     /**
