@@ -1,6 +1,12 @@
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
+import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { defineConfig } from 'vitest/config';
 
-export default defineWorkersConfig({
+export default defineConfig({
+	plugins: [
+		cloudflareTest({
+			wrangler: { configPath: './wrangler.jsonc' },
+		}),
+	],
 	test: {
 		coverage: {
 			provider: 'istanbul',
@@ -11,12 +17,6 @@ export default defineWorkersConfig({
 				branches: 86,
 				functions: 100,
 				lines: 100,
-			},
-		},
-		poolOptions: {
-			workers: {
-				isolatedStorage: false,
-				wrangler: { configPath: './wrangler.jsonc' },
 			},
 		},
 	},
