@@ -86,10 +86,6 @@ function sendResponse(socket: WebSocket, id: number, body: string): void {
   );
 }
 
-function roomSockets(room: RelayRoom): Set<WebSocket> {
-  return (room as unknown as { sockets: Set<WebSocket> }).sockets;
-}
-
 function fakeSocket(options: {
   readyState: number;
   send?: (message: string) => void;
@@ -101,6 +97,15 @@ function fakeSocket(options: {
     removeEventListener: vi.fn(),
     close: vi.fn(),
   } as unknown as WebSocket;
+}
+
+function fakeDurableState(sockets: WebSocket[] = []): DurableObjectState {
+  return {
+    acceptWebSocket: vi.fn((socket: WebSocket) => {
+      sockets.push(socket);
+    }),
+    getWebSockets: vi.fn(() => sockets),
+  } as unknown as DurableObjectState;
 }
 
 afterEach(() => {
@@ -152,15 +157,28 @@ describe("relay worker", () => {
     expect(await response.text()).toBe("No relay client for path");
   });
 
+  it("accepts subscriptions with the hibernating WebSocket API", async () => {
+    const state = fakeDurableState();
+    const room = new RelayRoom(state, {} as Env);
+
+    const response = await room.fetch(new Request("http://internal/subscribe"));
+
+    expect(response.status).toBe(101);
+    expect(response.webSocket).toBeDefined();
+    expect(state.acceptWebSocket).toHaveBeenCalledOnce();
+    expect(state.getWebSockets()).toHaveLength(1);
+  });
+
   it("does not count retained closed sockets as active connections", async () => {
-    const room = new RelayRoom({} as DurableObjectState, {} as Env);
-    roomSockets(room).add(fakeSocket({ readyState: 3 }));
+    const room = new RelayRoom(
+      fakeDurableState([fakeSocket({ readyState: 3 })]),
+      {} as Env
+    );
 
     const check = await room.fetch(
       new Request("http://internal/check-connections")
     );
     expect(await check.json()).toBe(false);
-    expect(roomSockets(room).size).toBe(0);
 
     const response = await room.fetch(new Request("http://internal/stale"));
     expect(response.status).toBe(400);
@@ -171,14 +189,13 @@ describe("relay worker", () => {
     vi.useFakeTimers();
 
     try {
-      const room = new RelayRoom({} as DurableObjectState, {} as Env);
       const socket = fakeSocket({
         readyState: 1,
         send: () => {
           throw new Error("dead socket");
         },
       });
-      roomSockets(room).add(socket);
+      const room = new RelayRoom(fakeDurableState([socket]), {} as Env);
 
       const responsePromise = room.fetch(new Request("http://internal/fails"));
 
@@ -188,7 +205,7 @@ describe("relay worker", () => {
       expect(response.status).toBe(504);
       expect(await response.text()).toBe("relay timeout");
       expect(socket.send).toHaveBeenCalled();
-      expect(roomSockets(room).size).toBe(0);
+      expect(socket.close).toHaveBeenCalledWith(1011, "relay send failed");
     } finally {
       vi.useRealTimers();
     }
@@ -292,9 +309,8 @@ describe("relay worker", () => {
     vi.useFakeTimers();
 
     try {
-      const room = new RelayRoom({} as DurableObjectState, {} as Env);
       const socket = fakeSocket({ readyState: 1 });
-      roomSockets(room).add(socket);
+      const room = new RelayRoom(fakeDurableState([socket]), {} as Env);
 
       const responsePromise = room.fetch(new Request("http://internal/timeout"));
       await vi.advanceTimersByTimeAsync(15000);

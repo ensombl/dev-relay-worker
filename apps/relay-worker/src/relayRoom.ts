@@ -10,25 +10,28 @@ import {
 } from "@ensombl/relay-protocol";
 
 const WS_READY_STATE_OPEN = 1;
+const RELAY_TIMEOUT_MS = 15000;
+
+type PendingRelayRequest = {
+  sockets: Set<WebSocket>;
+  winner?: WebSocket;
+  resHeaders?: Record<string, string>;
+  resStatus: number;
+  bodyController: ReadableStreamDefaultController<Uint8Array> | null;
+  resolveHeaders: () => void;
+  completed: boolean;
+};
 
 export class RelayRoom {
-  private sockets = new Set<WebSocket>();
   private nextId = 1;
+  private readonly inflight = new Map<number, PendingRelayRequest>();
 
   constructor(private state: DurableObjectState, _env: Env) {}
 
   private openSockets(): WebSocket[] {
-    const sockets: WebSocket[] = [];
-
-    for (const socket of this.sockets) {
-      if (socket.readyState === WS_READY_STATE_OPEN) {
-        sockets.push(socket);
-      } else {
-        this.sockets.delete(socket);
-      }
-    }
-
-    return sockets;
+    return this.state
+      .getWebSockets()
+      .filter((socket) => socket.readyState === WS_READY_STATE_OPEN);
   }
 
   private sendToSockets(sockets: WebSocket[], message: string): void {
@@ -36,8 +39,68 @@ export class RelayRoom {
       try {
         socket.send(message);
       } catch {
-        this.sockets.delete(socket);
+        try {
+          socket.close(1011, "relay send failed");
+        } catch {
+          // Socket is already unusable.
+        }
       }
+    }
+  }
+
+  private completeInflight(id: number): void {
+    const pending = this.inflight.get(id);
+    if (!pending || pending.completed) return;
+
+    pending.completed = true;
+    this.inflight.delete(id);
+    if (pending.bodyController) {
+      pending.bodyController.close();
+    }
+  }
+
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
+    let frame: RelayFrame & { id: number };
+
+    try {
+      const text =
+        typeof message === "string" ? message : new TextDecoder().decode(message);
+      frame = JSON.parse(text) as RelayFrame & { id: number };
+    } catch {
+      return;
+    }
+
+    const pending = this.inflight.get(frame.id);
+    if (!pending || !pending.sockets.has(ws)) return;
+
+    if (!pending.winner && frame.type === "res") {
+      pending.winner = ws;
+      pending.resStatus = (frame as ResHeaderFrame).s || 200;
+      pending.resHeaders = (frame as ResHeaderFrame).h || {};
+      pending.resolveHeaders();
+      return;
+    }
+
+    if (
+      ws === pending.winner &&
+      frame.type === "res_body" &&
+      pending.bodyController
+    ) {
+      const b64 = (frame as ResBodyFrame).b64 || "";
+      const more = (frame as ResBodyFrame).more;
+      const chunk = base64ToBytes(b64);
+      if (chunk.length) pending.bodyController.enqueue(chunk);
+      if (!more) {
+        this.completeInflight(frame.id);
+      }
+    }
+  }
+
+  webSocketClose(ws: WebSocket, code: number, reason: string): void {
+    try {
+      ws.close(code, reason);
+    } catch {
+      // The runtime may have already closed the connection.
     }
   }
 
@@ -57,14 +120,7 @@ export class RelayRoom {
       const client = (pair as any)[0] as WebSocket;
       const server = (pair as any)[1] as WebSocket;
 
-      server.accept();
-      this.sockets.add(server);
-
-      const cleanup = () => {
-        this.sockets.delete(server);
-      };
-      server.addEventListener("close", cleanup);
-      server.addEventListener("error", cleanup);
+      this.state.acceptWebSocket(server);
 
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -86,10 +142,6 @@ export class RelayRoom {
     for (const [k, v] of req.headers) headers[k.toLowerCase()] = v;
 
     // Winner state + streaming back to caller
-    let winner: WebSocket | undefined;
-    let resHeaders: Record<string, string> | undefined;
-    let resStatus = 200;
-
     let bodyController: ReadableStreamDefaultController<Uint8Array> | null =
       null;
     const bodyStream = new ReadableStream<Uint8Array>({
@@ -98,47 +150,23 @@ export class RelayRoom {
       },
     });
 
-    // Per-socket message handling
-    const socketHandlers = new Map<WebSocket, (e: MessageEvent) => void>();
-    const onMessage = (ws: WebSocket, evt: MessageEvent) => {
-      try {
-        const msg = JSON.parse(
-          typeof evt.data === "string" ? evt.data : ""
-        ) as RelayFrame & { id: number };
-        if (msg.id !== rid) return;
-
-        if (!winner && msg.type === "res") {
-          winner = ws;
-          resStatus = (msg as ResHeaderFrame).s || 200;
-          resHeaders = (msg as ResHeaderFrame).h || {};
-          return;
-        }
-
-        if (ws === winner && msg.type === "res_body" && bodyController) {
-          const b64 = (msg as ResBodyFrame).b64 || "";
-          const more = (msg as ResBodyFrame).more;
-          const chunk = base64ToBytes(b64);
-          if (chunk.length) bodyController.enqueue(chunk);
-          if (!more) {
-            bodyController.close();
-            // cleanup listeners
-            for (const sock of sockets) {
-              const h = socketHandlers.get(sock);
-              if (h) sock.removeEventListener("message", h as any);
-            }
-            socketHandlers.clear();
-          }
-        }
-      } catch {
-        // ignore malformed frames
-      }
+    let headerTimeout: ReturnType<typeof setTimeout> | undefined;
+    let resolveHeaders: () => void = () => {};
+    const headerWait = new Promise<boolean>((resolve) => {
+      resolveHeaders = () => {
+        if (headerTimeout) clearTimeout(headerTimeout);
+        resolve(true);
+      };
+      headerTimeout = setTimeout(() => resolve(false), RELAY_TIMEOUT_MS);
+    });
+    const pending: PendingRelayRequest = {
+      sockets: new Set(sockets),
+      resStatus: 200,
+      bodyController,
+      resolveHeaders,
+      completed: false,
     };
-
-    for (const ws of sockets) {
-      const handler = onMessage.bind(this, ws) as (e: MessageEvent) => void;
-      ws.addEventListener("message", handler);
-      socketHandlers.set(ws, handler);
-    }
+    this.inflight.set(rid, pending);
 
     // Send request header frame
     const headerFrame: ReqHeaderFrame = {
@@ -189,34 +217,21 @@ export class RelayRoom {
     }
 
     // Wait up to 15s for first response headers
-    const headerWait = new Promise<void>((resolve) => {
-      const deadline = Date.now() + 15000;
-      const tick = () => {
-        if (winner && resHeaders) return resolve();
-        if (Date.now() >= deadline) return resolve();
-        setTimeout(tick, 5);
-      };
-      tick();
-    });
     await headerWait;
 
     // Timeout -> 504
-    if (!winner || !resHeaders) {
-      for (const sock of sockets) {
-        const h = socketHandlers.get(sock);
-        if (h) sock.removeEventListener("message", h as any);
-      }
-      socketHandlers.clear();
-      const controller =
-        bodyController as ReadableStreamDefaultController<Uint8Array> | null;
-      if (controller) controller.close();
+    if (!pending.winner || !pending.resHeaders) {
+      this.completeInflight(rid);
       return new Response("relay timeout", { status: 504 });
     }
 
     // Stream winner’s response to caller
     const outHeaders = new Headers();
-    for (const [k, v] of Object.entries(resHeaders))
+    for (const [k, v] of Object.entries(pending.resHeaders))
       outHeaders.set(k, String(v));
-    return new Response(bodyStream, { status: resStatus, headers: outHeaders });
+    return new Response(bodyStream, {
+      status: pending.resStatus,
+      headers: outHeaders,
+    });
   }
 }
